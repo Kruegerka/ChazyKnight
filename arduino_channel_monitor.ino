@@ -34,6 +34,7 @@ void inputCaptureISR(){
     STATE = busy;
     digitalWrite(g_pin,LOW); //Green LED on for IDLE
     digitalWrite(y_pin,HIGH); //Yellow LED off, not BUSY
+    digitalWrite(r_pin,LOW); //Red LED off, not COLLISION
   } else {
     STATE = busy;
     digitalWrite(g_pin,LOW); //Green LED off, not idle
@@ -65,8 +66,8 @@ void setup(){
   TCCR1B = 0; //Clear the B control register
   TCNT1 = 0; //Initialize counter start value to 0
   
-  //OCR1A = test; //Test value for 500 ms timer.
-  OCR1A = ms111; //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
+  OCR1A = test; //Test value for 500 ms timer.
+  //OCR1A = ms111; //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
   TCCR1B |= (1 << WGM12); //Set to "Clear Timer on Compare" mode for autonomous restart on interrupt.
   TIMSK1 |= (1 << OCIE1A); //Set interrupt to trigger on a comparison match.
   TCCR1B |= (1 << CS12); // set prescaler to 256 and start the timer
@@ -89,7 +90,7 @@ ISR (TIMER1_COMPA_vect){
    * If the logic level is '1', then the transmission has ended, so it is idle.
    * If the logic level is '0', then a collision of "start" bits has occurred.
    */
-  if(v_lvl == '1'){
+  if(v_lvl == HIGH){
     STATE = idle;
     digitalWrite(g_pin,HIGH); //Green LED on for IDLE
     digitalWrite(y_pin,LOW); //Yellow LED off, not BUSY
