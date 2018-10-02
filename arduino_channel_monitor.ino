@@ -5,9 +5,11 @@
 //void input_capture_isr();
 
 //Timer register value for 1.11 ms.
-const int ms111 = 69;
-const int test = 31250;
-volatile enum {idle,busy,collision} STATE;
+//const int ms111 = 69; //For a prescaler of 256
+const int ms111 = 17760; //For a prescaler of 1
+const int test = 31250; //1s delay for prescaler of 256
+volatile byte STATE; //0 for idle, 1 for busy, and 2 for collision
+static byte PREV_STATE; //0 for idle, 1 for busy, and 2 for collision
 
 //Digital pin 2 is used for Input Capture interrupts from the bus.
 const byte int_pin = 2;
@@ -22,25 +24,9 @@ const byte r_pin = 8;
 //Timer syntax is x stands for timer number and y stands for register output number.
 
 void inputCaptureISR(){
-  //put input_capture_isr code here
   //Reset the timer
   TCNT1 = 0; // Reset count value in the timer to 0.
-  
-  //Change the state of the transmission line.
-  //If the state is idle, then change it to busy because a packet is being transmitted.
-  //If the state is busy, then remain busy because the transmission is not finished.
-  //If the state is collision, then set to busy from restart of transmission.
-  if(STATE == idle){
-    STATE = busy;
-    digitalWrite(g_pin,LOW); //Green LED on for IDLE
-    digitalWrite(y_pin,HIGH); //Yellow LED off, not BUSY
-    digitalWrite(r_pin,LOW); //Red LED off, not COLLISION
-  } else {
-    STATE = busy;
-    digitalWrite(g_pin,LOW); //Green LED off, not idle
-    digitalWrite(y_pin,HIGH); //Yellow LED on for BUSY
-    digitalWrite(r_pin,LOW); //Red LED off, not COLLISION
-  }
+  STATE = 1;
 }
 
 void setup(){
@@ -53,10 +39,11 @@ void setup(){
   pinMode(r_pin, OUTPUT); //Red LED pin (Digital Pin 8)
 
   //Start with the IDLE state of gren LED on
-  digitalWrite(g_pin,LOW);
+  digitalWrite(g_pin,HIGH);
   digitalWrite(y_pin,LOW);
   digitalWrite(r_pin,LOW);
-  STATE = idle;
+  STATE = 0; 
+  PREV_STATE = 0;
   
   //Setup the input capture pin to cause interrupts for the system.
   attachInterrupt(digitalPinToInterrupt(int_pin),inputCaptureISR,CHANGE);
@@ -66,17 +53,40 @@ void setup(){
   TCCR1B = 0; //Clear the B control register
   TCNT1 = 0; //Initialize counter start value to 0
   
-  OCR1A = test; //Test value for 500 ms timer.
-  //OCR1A = ms111; //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
+  //OCR1A = test; //Test value for 500 ms timer.
+  OCR1A = ms111; //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
   TCCR1B |= (1 << WGM12); //Set to "Clear Timer on Compare" mode for autonomous restart on interrupt.
   TIMSK1 |= (1 << OCIE1A); //Set interrupt to trigger on a comparison match.
-  TCCR1B |= (1 << CS12); // set prescaler to 256 and start the timer
+  //TCCR1B |= (1 << CS12); // set prescaler to 256 and start the timer
+  TCCR1B |= (1 << CS10); // set prescaler to 1 and start the timer
 
   sei(); //Allow interrupts
 }
 
 void loop(){
   //It should just sit here after initialization.
+  if(!(PREV_STATE == STATE)){
+    switch(STATE){
+      case 0:
+         digitalWrite(g_pin,HIGH);
+         digitalWrite(y_pin,LOW);
+         digitalWrite(r_pin,LOW);
+         PREV_STATE = 0;
+         break;
+      case 1:
+         digitalWrite(g_pin,LOW);
+         digitalWrite(y_pin,HIGH);
+         digitalWrite(r_pin,LOW);
+         PREV_STATE = 1;
+         break;
+      case 2:
+         digitalWrite(g_pin,LOW);
+         digitalWrite(y_pin,LOW);
+         digitalWrite(r_pin,HIGH);
+         PREV_STATE = 2;
+         break;
+    }
+  }
 }
 
 ISR (TIMER1_COMPA_vect){
@@ -91,15 +101,9 @@ ISR (TIMER1_COMPA_vect){
    * If the logic level is '0', then a collision of "start" bits has occurred.
    */
   if(v_lvl == HIGH){
-    STATE = idle;
-    digitalWrite(g_pin,HIGH); //Green LED on for IDLE
-    digitalWrite(y_pin,LOW); //Yellow LED off, not BUSY
-    digitalWrite(r_pin,LOW); //Red LED off, not COLLISION
-  } else {
-    STATE = collision;
-    digitalWrite(g_pin,LOW); //Green LED off, not IDLE
-    digitalWrite(y_pin,LOW); //Yellow LED off, not BUSY
-    digitalWrite(r_pin,HIGH); //Red LED on for COLLISION
+    STATE = 0;
+  } else if(v_lvl == LOW) {
+    STATE = 2;
   }
   /**
    * This is only here for Timer1 testing purposes.
