@@ -8,8 +8,10 @@
 //const int ms111 = 69; //For a prescaler of 256
 const int ms111 = 17760; //For a prescaler of 1
 const int test = 31250; //1s delay for prescaler of 256
+const char startingMask = 0x80; //Starting mask of 1000000 for extracting the MSB to send first
 volatile byte STATE; //0 for idle, 1 for busy, and 2 for collision
 static byte PREV_STATE; //0 for idle, 1 for busy, and 2 for collision
+static int lvl;
 
 //Digital pin 2 is used for Input Capture interrupts from the bus.
 const byte int_pin = 2;
@@ -24,9 +26,9 @@ const byte r_pin = 8;
 //Timer syntax is x stands for timer number and y stands for register output number.
 
 void inputCaptureISR(){
-  //Reset the timer
-  TCNT1 = 0; // Reset count value in the timer to 0.
   STATE = 1;
+  TCNT1 = 0; // Reset count value in the timer to 0.
+  TIFR1 |= (1 << OCF1A);
 }
 
 void setup(){
@@ -90,29 +92,15 @@ void loop(){
 }
 
 ISR (TIMER1_COMPA_vect){
-  //put timer_isr code here
-
-  //Read the logic level of the bus (Digital Pin 2)
-  byte v_lvl = digitalRead(int_pin);
-
   /**
    * Change the state of the transmission line.
    * If the logic level is '1', then the transmission has ended, so it is idle.
    * If the logic level is '0', then a collision of "start" bits has occurred.
    */
-  if(v_lvl == HIGH){
-    STATE = 0;
-  } else if(v_lvl == LOW) {
-    STATE = 2;
-  }
-  /**
-   * This is only here for Timer1 testing purposes.
-   */
-  /*if(STATE == idle){
-    digitalWrite(g_pin,HIGH); //Green LED on for IDLE
-    STATE = busy;
-  } else {
-    digitalWrite(g_pin,LOW); //Green LED on for IDLE
-    STATE = idle;
-  }*/
+   lvl = digitalRead(int_pin);
+    if(lvl == HIGH){
+      STATE = 0;
+    } else if(lvl == LOW) {
+      STATE = 2;
+    }
 }
