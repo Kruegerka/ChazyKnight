@@ -132,11 +132,6 @@ void loop(){
          break;
     }
   }
-
-  digitalWrite(int_pin,HIGH);
-  delayMicroseconds(delayTime);
-  digitalWrite(int_pin,LOW);
-  delayMicroseconds(delayTime);
 }
 
 ISR (TIMER1_COMPA_vect){
