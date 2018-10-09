@@ -96,8 +96,6 @@ void loop(){
          break;
     }
   }
-  
-  //if (Serial.available() > 0) {
     // read the incoming byte:
     incomingByte = Serial.read();
     if(incomingByte == 13){
@@ -116,8 +114,7 @@ void loop(){
       Serial.print((char)incomingByte);
       buf[numberOfChars] = incomingByte; 
       numberOfChars++; 
-   }
-  //}
+    }
 
 }
 
