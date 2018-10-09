@@ -8,8 +8,8 @@
 //const int ms111 = 69; //For a prescaler of 256
 const int ms111 = 17760; //For a prescaler of 1
 const int test = 31250;  //1s delay for prescaler of 256
-const int delayTime = 555;
-const char startingMask = 0x80; //Starting mask of 1000000 for extracting the MSB to send first
+const int delayTime = 500;
+const unsigned int startingMask = 0x80; //Starting mask of 10000000 for extracting the MSB to send first
 volatile byte STATE;            //0 for idle, 1 for busy, and 2 for collision
 static byte PREV_STATE;         //0 for idle, 1 for busy, and 2 for collision
 static int lvl;
@@ -23,9 +23,9 @@ const byte g_pin = 4;
 const byte y_pin = 7;
 //Digital pin 8 is for the red LED
 const byte r_pin = 8;
-char buf[150];
-int numberOfChars;
-char incomingByte;
+static char buf[150];
+static int numberOfChars;
+static char incomingByte;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -39,13 +39,17 @@ void inputCaptureISR()
 void sendChar(char character)
 {
   //Send HIGH if bitwise & with mask is not 0; otherwise set level to LOW
-  char mask = startingMask;
+  unsigned int mask = startingMask;
+  unsigned int sendingChar = character;
 
-  Serial.print(character);
+  //Serial.print(character);
   for (int i = 0; i < 8; i++)
   {
-    if ((character & mask) != 0)
+    //Serial.print((sendingChar & mask));
+    //Serial.print(" ");
+    if ((sendingChar & mask) != 0)
     { //The bit to transmit is a 1.
+      
       //Check if the level has to be flipped for the first half of the bit period. Must be low for 1.
       if (last_lvl)
       {
@@ -82,8 +86,9 @@ void sendChar(char character)
       //Hold low level for second half-bit period.
       delayMicroseconds(delayTime);
     }
-    mask = mask >> 1; //Shift the mask to the right 1 to extract the next bit.
+    mask = (mask >> 1); //Shift the mask to the right 1 to extract the next bit.
   }
+  digitalWrite(int_pin, HIGH);
 }
 
 void setup()
@@ -97,12 +102,13 @@ void setup()
   pinMode(r_pin, OUTPUT);   //Red LED pin (Digital Pin 8)
 
   //Start with the IDLE state of gren LED on
-  digitalWrite(g_pin, HIGH);
+  digitalWrite(g_pin, LOW);
   digitalWrite(y_pin, LOW);
   digitalWrite(r_pin, LOW);
+  digitalWrite(int_pin, HIGH);
   STATE = 0;
   PREV_STATE = 0;
-  last_lvl = digitalRead(int_pin);
+  
 
   //Setup the input capture pin to cause interrupts for the system.
   attachInterrupt(digitalPinToInterrupt(int_pin), inputCaptureISR, CHANGE);
@@ -155,27 +161,34 @@ void loop()
   }
   // read the incoming byte:
   incomingByte = Serial.read();
-  if (incomingByte == 13)
+  if (incomingByte == 13)//if user hits enter
   {
-    Serial.print("\n");
-    Serial.print("\r");
-
-    for (int i = 0; i < numberOfChars; i++)
+    Serial.print("\n"); //new line
+    Serial.print("\r"); //return
+    int i = 0;
+    while((i < numberOfChars)&&(STATE !=2 ))
     {
-      while (STATE == 0)
+      last_lvl = digitalRead(int_pin);
+      //Checks to see if indle state
+      if (STATE != 2)//it got stuck in this loop as while loop
       {
         if (buf[i] != -1)
         {
+          //Sends the char and then sets the buffer value to noise
           sendChar(buf[i]);
+          //Serial.print(buf[i]);
           buf[i] = -1;
         }
       }
+      i++;
     }
+    numberOfChars = 0;
   }
   else if (incomingByte > 0)
   {
-    // say what you got:
+    //Print char to Serial
     Serial.print((char)incomingByte);
+    //store the char
     buf[numberOfChars] = incomingByte;
     numberOfChars++;
   }
