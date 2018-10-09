@@ -8,10 +8,12 @@
 //const int ms111 = 69; //For a prescaler of 256
 const int ms111 = 17760; //For a prescaler of 1
 const int test = 31250; //1s delay for prescaler of 256
+const int delayTime = 555;
 const char startingMask = 0x80; //Starting mask of 1000000 for extracting the MSB to send first
 volatile byte STATE; //0 for idle, 1 for busy, and 2 for collision
 static byte PREV_STATE; //0 for idle, 1 for busy, and 2 for collision
 static int lvl;
+static bool last_lvl;
 
 //Digital pin 2 is used for Input Capture interrupts from the bus.
 const byte int_pin = 2;
@@ -22,10 +24,6 @@ const byte y_pin = 7;
 //Digital pin 8 is for the red LED
 const byte r_pin = 8;
 
-char buf[150];
-int numberOfChars;
-char incomingByte;
-
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -35,11 +33,51 @@ void inputCaptureISR(){
   TIFR1 |= (1 << OCF1A);
 }
 
+void sendChar(char character){
+  //Send HIGH if bitwise & with mask is not 0; otherwise set level to LOW
+  char mask = startingMask;
+
+  for(int i = 0; i < 8; i++){
+   if((character & mask) != 0){ //The bit to transmit is a 1.
+    //Check if the level has to be flipped for the first half of the bit period. Must be low for 1.
+    if(last_lvl){
+      digitalWrite(int_pin, LOW);
+      last_lvl  = !last_lvl;
+    }
+    //Still delay even if level doesn't change and hold for a half-bit period.
+    delayMicroseconds(delayTime);
+    //If the level  is 0, which it should be from previous steps, then invert and send high.
+    if(!last_lvl){
+      digitalWrite(int_pin, HIGH);
+      last_lvl = !last_lvl;
+    }
+    //Hold high level for second half-bit period.
+    delayMicroseconds(delayTime);
+  
+  } else { //The bit to transmit is a 0.
+    //Check if the level has to be flipped for the first half of the bit period. Must be high for 0.
+    if(!last_lvl){
+      digitalWrite(int_pin, HIGH);
+      last_lvl  = !last_lvl;
+    }
+    //Still delay even if the level doesn't change and hold for a half-bit period.
+    delayMicroseconds(delayTime);
+    //If the level  is 0, which it should be from previous steps, then invert and send high.
+    if(last_lvl){
+      digitalWrite(int_pin, LOW);
+      last_lvl = !last_lvl;
+    }
+    //Hold low level for second half-bit period.
+    delayMicroseconds(delayTime);
+  }
+  mask = mask >> 1; //Shift the mask to the right 1 to extract the next bit.
+}
+
 void setup(){
   cli(); //Stop interrupts
   
   //Set Pin Directions
-  pinMode(int_pin, INPUT); //Interrupt pin (Digital Pin 2)
+  pinMode(int_pin, OUTPUT); //Interrupt pin (Digital Pin 2)
   pinMode(g_pin, OUTPUT); //Green LED pin (Digital Pin 4)
   pinMode(y_pin, OUTPUT); //Yellow LED pin (Digital Pin 7)
   pinMode(r_pin, OUTPUT); //Red LED pin (Digital Pin 8)
@@ -50,6 +88,7 @@ void setup(){
   digitalWrite(r_pin,LOW);
   STATE = 0; 
   PREV_STATE = 0;
+  last_lvl = digitalRead(int_pin);
   
   //Setup the input capture pin to cause interrupts for the system.
   attachInterrupt(digitalPinToInterrupt(int_pin),inputCaptureISR,CHANGE);
@@ -65,9 +104,6 @@ void setup(){
   TIMSK1 |= (1 << OCIE1A); //Set interrupt to trigger on a comparison match.
   //TCCR1B |= (1 << CS12); // set prescaler to 256 and start the timer
   TCCR1B |= (1 << CS10); // set prescaler to 1 and start the timer
-  Serial.begin(9600);
-  buf[150];
-  numberOfChars = 0;
 
   sei(); //Allow interrupts
 }
@@ -96,34 +132,6 @@ void loop(){
          break;
     }
   }
-  
-  //if (Serial.available() > 0) {
-    // read the incoming byte:
-    incomingByte = Serial.read();
-    if(incomingByte == 13){
-      Serial.print("\n");
-      Serial.print("\r");
-
-      for(int i =0; i < numberOfChars; i++){
-        if(buf[i] != -1){
-          Serial.print(buf[i]);
-          buf[i] = -1;
-        }
-      }
-    }
-    else if(incomingByte > 0){
-      // say what you got:
-      Serial.print((char)incomingByte);
-      buf[numberOfChars] = incomingByte; 
-      numberOfChars++; 
-   }
-  //}
-
-}
-
-char echoSerial(){
-  
-  
 }
 
 ISR (TIMER1_COMPA_vect){
