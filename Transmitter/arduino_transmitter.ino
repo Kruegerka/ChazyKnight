@@ -41,6 +41,7 @@ void sendChar(char character)
   //Send HIGH if bitwise & with mask is not 0; otherwise set level to LOW
   unsigned int mask = startingMask;
   unsigned int sendingChar = character;
+  pinMode(int_pin, OUTPUT);
 
   //Serial.print(character);
   for (int i = 0; i < 8; i++)
@@ -88,7 +89,8 @@ void sendChar(char character)
     }
     mask = (mask >> 1); //Shift the mask to the right 1 to extract the next bit.
   }
-  digitalWrite(int_pin, HIGH);
+  pinMode(int_pin, INPUT);
+  //digitalWrite(int_pin, HIGH);
 }
 
 void setup()
@@ -96,7 +98,7 @@ void setup()
   cli(); //Stop interrupts
 
   //Set Pin Directions
-  pinMode(int_pin, OUTPUT); //Interrupt pin (Digital Pin 2)
+  pinMode(int_pin, INPUT); //Interrupt pin (Digital Pin 2)
   pinMode(g_pin, OUTPUT);   //Green LED pin (Digital Pin 4)
   pinMode(y_pin, OUTPUT);   //Yellow LED pin (Digital Pin 7)
   pinMode(r_pin, OUTPUT);   //Red LED pin (Digital Pin 8)
