@@ -22,10 +22,6 @@ const byte y_pin = 7;
 //Digital pin 8 is for the red LED
 const byte r_pin = 8;
 
-char buf[150];
-int numberOfChars;
-char incomingByte;
-
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -65,9 +61,6 @@ void setup(){
   TIMSK1 |= (1 << OCIE1A); //Set interrupt to trigger on a comparison match.
   //TCCR1B |= (1 << CS12); // set prescaler to 256 and start the timer
   TCCR1B |= (1 << CS10); // set prescaler to 1 and start the timer
-  Serial.begin(9600);
-  buf[150];
-  numberOfChars = 0;
 
   sei(); //Allow interrupts
 }
@@ -96,31 +89,6 @@ void loop(){
          break;
     }
   }
-    // read the incoming byte:
-    incomingByte = Serial.read();
-    if(incomingByte == 13){
-      Serial.print("\n");
-      Serial.print("\r");
-
-      for(int i =0; i < numberOfChars; i++){
-        if(buf[i] != -1){
-          Serial.print(buf[i]);
-          buf[i] = -1;
-        }
-      }
-    }
-    else if(incomingByte > 0){
-      // say what you got:
-      Serial.print((char)incomingByte);
-      buf[numberOfChars] = incomingByte; 
-      numberOfChars++; 
-    }
-
-}
-
-char echoSerial(){
-  
-  
 }
 
 ISR (TIMER1_COMPA_vect){
