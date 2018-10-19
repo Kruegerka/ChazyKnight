@@ -12,15 +12,15 @@ const int test = 31250;  //1s delay for prescaler of 256 on Timer1
 const int delayTime = 500;
 const unsigned int startingMask = 0x80; //Starting mask of 10000000 for extracting the MSB to send first
 volatile byte STATE;            //0 for idle, 1 for busy, and 2 for collision
-static byte PREV_STATE;         //0 for idle, 1 for busy, and 2 for collision
+volatile byte PREV_STATE;         //0 for idle, 1 for busy, and 2 for collision
 static int lvl;
 static bool last_lvl;
-static bool t2_en;
+volatile static bool t2_en;
 
 //Digital pin 2 is used for Input Capture interrupts from the bus.
 const byte cm_pin = 2;
 const byte rxtx_pin = 12;
-const byte rx_pin = 13;
+const byte rx_pin = 3;
 //Digital pins 4 is used for the Green LED
 const byte g_pin = 4;
 //Digital pin 7 is used for the Yellow LED
@@ -29,9 +29,12 @@ const byte y_pin = 7;
 const byte r_pin = 8;
 
 static char buf[150];
-static char recBuf[150];
+volatile static char recBuf[150];
 static int numberOfChars;
 static char incomingByte;
+volatile static int charCnt;
+volatile static int recCnt;
+volatile static char charRcvd;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -43,30 +46,58 @@ void inputCaptureISR()
 }
 
 void rcvInputCaptureISR(){
+  //Serial.print("Arrived at receive ISR.");
   if(!t2_en){
+    //Serial.println("Got first bit.");
+    //TCCR2B |= (1 << CS20) | (1 << CS22);
     t2_en = true;
     lvl = digitalRead(rx_pin);
     if(lvl == HIGH){
       //buf location becomes 1
+      charRcvd = (charRcvd << 1) + 1;
+      Serial.println("Got 1");
+      //recBuf[recCnt] = 1;
     } else if(lvl == LOW){
       //buf location becomes 0
+      //recBuf[recCnt] = 0;
+      charRcvd = (charRcvd << 1);
+      Serial.println("Got 0");
     }
+    recCnt++;
   }
   
-  int count = *TCNT1;
+  int count = TCNT2;
   //Check if the edge occurred in the middle of the bit period
-  if(count > 0.5*ms111){
+  if(count >= 0.5*ms1){
+    //Serial.println("Got a bit.");
     //Realign the clock
-    TCNT2 = 0;
+
     //Read level of 2nd half of bit period
     lvl = digitalRead(rx_pin);
     if(lvl == HIGH){
       //buf location becomes 1
+      //recBuf[recCnt] = 1;
+      charRcvd = (charRcvd << 1) + 1;
+      Serial.println("Got 1");
     } else if(lvl == LOW){
       //buf location becomes 0
+      //recBuf[recCnt] = 0;
+      charRcvd = (charRcvd << 1);
+      Serial.println("Got 0");
     }
-    TIFR2 |= (1 << OCF2A);
+    //recCnt++;
+    recCnt++;
   }
+
+  if(recCnt == 7){
+    recBuf[charCnt] = charRcvd;
+    Serial.println(charRcvd);
+    charCnt++;
+    recCnt = 0;
+    charRcvd = 0;
+  }
+  TCNT2 = 0;
+  TIFR2 |= (1 << OCF2A);
 }
 
 void sendChar(char character)
@@ -137,6 +168,7 @@ void setup()
   //Set Pin Directions
   pinMode(cm_pin, INPUT); //Interrupt pin and rxtx pin (Digital Pin 2)
   pinMode(rxtx_pin, OUTPUT);
+  pinMode(rx_pin, INPUT);
   pinMode(g_pin, OUTPUT);   //Green LED pin (Digital Pin 4)
   pinMode(y_pin, OUTPUT);   //Yellow LED pin (Digital Pin 7)
   pinMode(r_pin, OUTPUT);   //Red LED pin (Digital Pin 8)
@@ -153,6 +185,7 @@ void setup()
 
   //Setup the input capture pin to cause interrupts for the system.
   attachInterrupt(digitalPinToInterrupt(cm_pin), inputCaptureISR, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(rx_pin), rcvInputCaptureISR, CHANGE);
 
   //Setup timer 2 and start it
   TCCR1A = 0; //Clear the A control register
@@ -172,15 +205,19 @@ void setup()
   TCNT2 = 0;  //Initialize counter start value to 0
 
   //OCR1A = test; //Test value for 500 ms timer.
-  OCR2A = ms111;           //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
+  OCR2A = ms1;           //Set the Output Compare Register to do 69 cycles before triggering interupt for 1.104 ms delay.
   TCCR2B |= (1 << WGM12);  //Set to "Clear Timer on Compare" mode for autonomous restart on interrupt.
   TIMSK2 |= (1 << OCIE2A); //Set interrupt to trigger on a comparison match.
-  //TCCR2B |= (1 << CS20) | (1 << CS22); // set prescaler to 1 and start the timer
+  TCCR2B |= (1 << CS20) | (1 << CS22); // set prescaler to 1 and start the timer
   t2_en = false;
 
   Serial.begin(9600);
-  buf[150];
+  //buf[150];
+  //recBuf[150];
   numberOfChars = 0;
+  recCnt = 0;
+  charCnt = 0;
+  charRcvd = 0;
 
   sei(); //Allow interrupts
 }
@@ -219,6 +256,9 @@ void loop()
     Serial.print("\n"); //new line
     Serial.print("\r"); //return
     while(STATE != 0); //Wait until state becomes IDLE
+    charCnt = 0;
+    recCnt = 0;
+    charRcvd = 0;
     //while(STATE != 2){
     int i = 0;
     while((i < numberOfChars)&&(STATE !=2 ))
@@ -249,6 +289,25 @@ void loop()
     numberOfChars++;
   }
   digitalWrite(rxtx_pin,HIGH); 
+
+  //Receive code
+  /*if(t2_en && (STATE == 0)){
+    Serial.println("I am here");
+    /*
+    t2_en = false;
+    int i = 0;
+    while(i < recCnt)
+    {
+        if (recBuf[i] != -1)
+        {
+          //Sends the char and then sets the buffer value to noise
+          Serial.print(recBuf[i]);
+          recBuf[i] = -1;
+        }
+        i++;
+    }
+    recCnt = 0;*/
+  //}
 }
 
 ISR(TIMER1_COMPA_vect)
@@ -271,9 +330,30 @@ ISR(TIMER1_COMPA_vect)
 
 ISR(TIMER2_COMPA_vect){
   lvl = digitalRead(rx_pin);
+  //Serial.println("Timer 2 timed out.");
+  
   if(lvl == HIGH){
     //end transmission
-  } else {
-    //Transmission error
-  }
+    if(t2_en && (STATE == 0)){
+      Serial.println("I am sending.");
+      t2_en = false;
+      int i = 0;
+      while(i < charCnt)
+      {
+          if (recBuf[i] != -1)
+          {
+            //Sends the char and then sets the buffer value to noise
+            Serial.print(recBuf[i]);
+            recBuf[i] = -1;
+          }
+          i++;
+      }
+      recCnt = 0;
+      charCnt =0;
+      charRcvd = 0;
+      //TCCR2B |= 0; //stop the timer
+    }
+  } //else {
+    ////Transmission error
+  //}
 }
