@@ -10,10 +10,12 @@ const int ms111 = 17760; //For a prescaler of 1 on Timer1
 const int ms1 = 125; //For a prescaler of 128 on Timer2
 const int test = 31250;  //1s delay for prescaler of 256 on Timer1
 const int delayTime = 500;
+const int delayAdj = 25;
 const unsigned int startingMask = 0x80; //Starting mask of 10000000 for extracting the MSB to send first
 volatile byte STATE;            //0 for idle, 1 for busy, and 2 for collision
 volatile byte PREV_STATE;         //0 for idle, 1 for busy, and 2 for collision
 static int lvl;
+//static int rec_lvl;
 static bool last_lvl;
 volatile static bool t2_en;
 
@@ -35,6 +37,8 @@ static char incomingByte;
 volatile static int charCnt;
 volatile static int recCnt;
 volatile static char charRcvd;
+static bool rstEdge;
+static bool rec_lvl;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -47,57 +51,85 @@ void inputCaptureISR()
 
 void rcvInputCaptureISR(){
   //Serial.print("Arrived at receive ISR.");
+  //rec_lvl = digitalRead(rx_pin);
+  rec_lvl = !rec_lvl;
   if(!t2_en){
-    //Serial.println("Got first bit.");
-    //TCCR2B |= (1 << CS20) | (1 << CS22);
     t2_en = true;
-    lvl = digitalRead(rx_pin);
-    if(lvl == HIGH){
+    //lvl = digitalRead(rx_pin);
+    //if(rec_lvl == HIGH){
+    if(rec_lvl == 1){
       //buf location becomes 1
       charRcvd = (charRcvd << 1) + 1;
-      Serial.println("Got 1");
-      //recBuf[recCnt] = 1;
-    } else if(lvl == LOW){
+      //Serial.println("F1");
+    //} else if(rec_lvl == LOW){
+    } else if(rec_lvl == 0){
       //buf location becomes 0
-      //recBuf[recCnt] = 0;
       charRcvd = (charRcvd << 1);
-      Serial.println("Got 0");
+      //Serial.println("F0");
     }
     recCnt++;
-  }
+  } else {
   
-  int count = TCNT2;
-  //Check if the edge occurred in the middle of the bit period
-  if(count >= 0.5*ms1){
-    //Serial.println("Got a bit.");
-    //Realign the clock
-
-    //Read level of 2nd half of bit period
-    lvl = digitalRead(rx_pin);
-    if(lvl == HIGH){
-      //buf location becomes 1
-      //recBuf[recCnt] = 1;
-      charRcvd = (charRcvd << 1) + 1;
-      Serial.println("Got 1");
-    } else if(lvl == LOW){
-      //buf location becomes 0
-      //recBuf[recCnt] = 0;
-      charRcvd = (charRcvd << 1);
-      Serial.println("Got 0");
+    int count = TCNT2;
+    //Check if the edge occurred in the middle of the bit period
+    if(count <= (0.75*ms1)){
+      /*Serial.print("TCNT2 is ");
+      Serial.println(count);*/
+      if(!rstEdge){
+        //if(recCnt>0){
+          rstEdge = true;
+        //}
+      } else {
+        //Read level of 2nd half of bit period
+        //lvl = digitalRead(rx_pin);
+        //if(rec_lvl == HIGH){
+        if(rec_lvl == 1){
+          //buf location becomes 1
+          charRcvd = (charRcvd << 1) + 1;
+          //Serial.println("E1");
+        //} else if(rec_lvl == LOW){
+        } else if(rec_lvl == 0){
+          //buf location becomes 0
+          charRcvd = (charRcvd << 1);
+          //Serial.println("E0");
+        }
+        recCnt++;
+        rstEdge = false;
+      }
+    } else {
+      //Serial.println("Got a bit.");
+      //Realign the clock
+  
+      //Read level of 2nd half of bit period
+      //lvl = digitalRead(rx_pin);
+      //if(rec_lvl == HIGH){
+      if(rec_lvl == 1){
+        //buf location becomes 1
+        charRcvd = (charRcvd << 1) + 1;
+        //Serial.println("B1");
+      //} else if(rec_lvl == LOW){
+      } else if(rec_lvl == 0){
+        //buf location becomes 0
+        charRcvd = (charRcvd << 1);
+        //Serial.println("B0");
+      }
+      recCnt++;
     }
-    //recCnt++;
-    recCnt++;
   }
-
-  if(recCnt == 7){
+  if(recCnt == 8){
     recBuf[charCnt] = charRcvd;
-    Serial.println(charRcvd);
+    //Serial.println(charRcvd);
     charCnt++;
     recCnt = 0;
     charRcvd = 0;
-  }
-  TCNT2 = 0;
-  TIFR2 |= (1 << OCF2A);
+    //rstEdge = false;
+    //Serial.println(rstEdge);
+ }
+ /*Serial.print("recCnt is ");
+ Serial.println(recCnt);
+ Serial.println(rstEdge);*/
+ TCNT2 = 0;
+ TIFR2 |= (1 << OCF2A);
 }
 
 void sendChar(char character)
@@ -123,7 +155,7 @@ void sendChar(char character)
         last_lvl = !last_lvl;
       }
       //Still delay even if level doesn't change and hold for a half-bit period.
-      delayMicroseconds(delayTime);
+      delayMicroseconds(delayTime-delayAdj);
       //If the level  is 0, which it should be from previous steps, then invert and send high.
       if (!last_lvl)
       {
@@ -132,7 +164,7 @@ void sendChar(char character)
         last_lvl = !last_lvl;
       }
       //Hold high level for second half-bit period.
-      delayMicroseconds(delayTime);
+      delayMicroseconds(delayTime-delayAdj);
     }
     else
     { //The bit to transmit is a 0.
@@ -144,7 +176,7 @@ void sendChar(char character)
         last_lvl = !last_lvl;
       }
       //Still delay even if the level doesn't change and hold for a half-bit period.
-      delayMicroseconds(delayTime);
+      delayMicroseconds(delayTime-delayAdj);
       //If the level  is 0, which it should be from previous steps, then invert and send high.
       if (last_lvl)
       {
@@ -153,7 +185,7 @@ void sendChar(char character)
         last_lvl = !last_lvl;
       }
       //Hold low level for second half-bit period.
-      delayMicroseconds(delayTime);
+      delayMicroseconds(delayTime-delayAdj);
     }
     mask = (mask >> 1); //Shift the mask to the right 1 to extract the next bit.
   }
@@ -218,6 +250,8 @@ void setup()
   recCnt = 0;
   charCnt = 0;
   charRcvd = 0;
+  rec_lvl = 1;
+  rstEdge = false;
 
   sei(); //Allow interrupts
 }
@@ -225,7 +259,7 @@ void setup()
 void loop()
 {
   //It should just sit here after initialization.
-  if (!(PREV_STATE == STATE))
+  if (PREV_STATE != STATE)
   {
     switch (STATE)
     {
@@ -233,28 +267,26 @@ void loop()
       digitalWrite(g_pin, HIGH);
       digitalWrite(y_pin, LOW);
       digitalWrite(r_pin, LOW);
-      PREV_STATE = 0;
       break;
     case 1:
       digitalWrite(g_pin, LOW);
       digitalWrite(y_pin, HIGH);
       digitalWrite(r_pin, LOW);
-      PREV_STATE = 1;
       break;
     case 2:
       digitalWrite(g_pin, LOW);
       digitalWrite(y_pin, LOW);
       digitalWrite(r_pin, HIGH);
-      PREV_STATE = 2;
       break;
     }
+    PREV_STATE = STATE;
   }
   // read the incoming byte:
   incomingByte = Serial.read();
   if (incomingByte == 13)//if user hits enter
   {
-    Serial.print("\n"); //new line
-    Serial.print("\r"); //return
+    Serial.print("\n\r"); //new line
+    //Serial.print("\r"); //return
     while(STATE != 0); //Wait until state becomes IDLE
     charCnt = 0;
     recCnt = 0;
@@ -263,10 +295,10 @@ void loop()
     int i = 0;
     while((i < numberOfChars)&&(STATE !=2 ))
     {
-      last_lvl = digitalRead(rxtx_pin);
+      //last_lvl = digitalRead(rxtx_pin);
       //Checks to see if indle state
-      if (STATE != 2)//it got stuck in this loop as while loop
-      {
+      //if (STATE != 2)//it got stuck in this loop as while loop
+      //{
         if (buf[i] != -1)
         {
           //Sends the char and then sets the buffer value to noise
@@ -274,7 +306,7 @@ void loop()
           //Serial.print(buf[i]);
           //buf[i] = -1;
         }
-      }
+      //}
       i++;
     }
     //}
@@ -335,23 +367,37 @@ ISR(TIMER2_COMPA_vect){
   if(lvl == HIGH){
     //end transmission
     if(t2_en && (STATE == 0)){
-      Serial.println("I am sending.");
-      t2_en = false;
-      int i = 0;
-      while(i < charCnt)
-      {
-          if (recBuf[i] != -1)
-          {
-            //Sends the char and then sets the buffer value to noise
-            Serial.print(recBuf[i]);
-            recBuf[i] = -1;
-          }
-          i++;
+      if(charCnt != 0){
+        Serial.print("R: ");
+        int i = 0;
+        while(i < charCnt)
+        {
+            if (recBuf[i] > 0)
+            {
+              //Sends the char and then sets the buffer value to noise
+              Serial.print(recBuf[i]);
+              recBuf[i] = -1;
+            }
+            i++;
+        }
+        Serial.print("\n\r"); //new line
+        //Serial.println(rstEdge);
+        //Serial.print("\r"); //return
+        //Serial.println(charCnt);
+        recCnt = 0;
+        charCnt =0;
+        charRcvd = 0;
+        t2_en = false;
+        //TCCR2B |= 0; //stop the timer
+      } else {
+        Serial.println("-I-");
+        charCnt = 0;
+        recCnt = 0;
+        charRcvd = 0;
+        t2_en = false;
       }
-      recCnt = 0;
-      charCnt =0;
-      charRcvd = 0;
-      //TCCR2B |= 0; //stop the timer
+      rstEdge = false;
+      rec_lvl = 1;
     }
   } //else {
     ////Transmission error
