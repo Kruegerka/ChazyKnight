@@ -39,6 +39,7 @@ volatile static int recCnt;
 volatile static char charRcvd;
 static bool rstEdge;
 static bool rec_lvl;
+long randomBackoff;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -253,6 +254,8 @@ void setup()
   rec_lvl = 1;
   rstEdge = false;
 
+  randomSeed(analogRead(14));
+
   sei(); //Allow interrupts
 }
 
@@ -340,6 +343,12 @@ void loop()
     }
     recCnt = 0;*/
   //}
+}
+
+long generateRandomBackOff(){
+    //Nmax = 200
+    //return = (N/nmax)*1s
+    return random(200)*5.00; //miliseconds
 }
 
 ISR(TIMER1_COMPA_vect)
