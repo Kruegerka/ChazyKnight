@@ -47,26 +47,19 @@ volatile static int recCnt;
 volatile static char charRcvd;
 static bool rstEdge;
 static bool rec_lvl;
-static struct rxPacket {
+static bool reTrans = false;
+struct Packet {
 	byte synch = SYNCHRONIZATION;
-	byte version = VERSION_NUMBER;
+	byte vers = VERSION_NUMBER;
 	byte source = SOURCE_ADDR;
 	byte destination = DEST_ADDR;
-	byte length;
+	byte leng;
 	byte CRC_flag = CRC_ON;
 	char message[MAX_MESSAGE_LENGTH];
 	byte FCS;
-}
-static struct txPacket {
-	byte synch = SYNCHRONIZATION;
-	byte version = VERSION_NUMBER;
-	byte source = SOURCE_ADDR;
-	byte destination = DEST_ADDR;
-	byte length;
-	byte CRC_flag = CRC_ON;
-	char message[MAX_MESSAGE_LENGTH];
-	byte FCS;
-}
+};
+volatile static struct Packet rxPacket;
+volatile static struct Packet txPacket;
 long randomBackoff;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
@@ -167,56 +160,59 @@ void sendChar(char character)
   unsigned int mask = startingMask;
   unsigned int sendingChar = character;
   //pinMode(rxrxtx_pin, OUTPUT);
-
-  //Serial.print(character);
-  for (int i = 0; i < 8; i++)
-  {
-    //Serial.print((sendingChar & mask));
-    //Serial.print(" ");
-    if ((sendingChar & mask) != 0)
-    { //The bit to transmit is a 1.
-      
-      //Check if the level has to be flipped for the first half of the bit period. Must be low for 1.
-      if (last_lvl)
-      {
-        digitalWrite(rxtx_pin, LOW);
-        //digitalWrite(rxrxtx_pin, HIGH);
-        last_lvl = !last_lvl;
+  if(!reTrans){
+    //Serial.print(character);
+    for (int i = 0; i < 8; i++)
+    {
+      //Serial.print((sendingChar & mask));
+      //Serial.print(" ");
+      if(!reTrans){
+        if ((sendingChar & mask) != 0)
+        { //The bit to transmit is a 1.
+          
+          //Check if the level has to be flipped for the first half of the bit period. Must be low for 1.
+          if (last_lvl)
+          {
+            digitalWrite(rxtx_pin, LOW);
+            //digitalWrite(rxrxtx_pin, HIGH);
+            last_lvl = !last_lvl;
+          }
+          //Still delay even if level doesn't change and hold for a half-bit period.
+          delayMicroseconds(delayTime-delayAdj);
+          //If the level  is 0, which it should be from previous steps, then invert and send high.
+          if (!last_lvl)
+          {
+            digitalWrite(rxtx_pin, HIGH);
+            //digitalWrite(rxrxtx_pin, LOW);
+            last_lvl = !last_lvl;
+          }
+          //Hold high level for second half-bit period.
+          delayMicroseconds(delayTime-delayAdj);
+        }
+        else
+        { //The bit to transmit is a 0.
+          //Check if the level has to be flipped for the first half of the bit period. Must be high for 0.
+          if (!last_lvl)
+          {
+            digitalWrite(rxtx_pin, HIGH);
+            //digitalWrite(rxrxtx_pin, LOW);
+            last_lvl = !last_lvl;
+          }
+          //Still delay even if the level doesn't change and hold for a half-bit period.
+          delayMicroseconds(delayTime-delayAdj);
+          //If the level  is 0, which it should be from previous steps, then invert and send high.
+          if (last_lvl)
+          {
+            digitalWrite(rxtx_pin, LOW);
+            //digitalWrite(rxrxtx_pin, HIGH);
+            last_lvl = !last_lvl;
+          }
+          //Hold low level for second half-bit period.
+          delayMicroseconds(delayTime-delayAdj);
+        }
+        mask = (mask >> 1); //Shift the mask to the right 1 to extract the next bit.
       }
-      //Still delay even if level doesn't change and hold for a half-bit period.
-      delayMicroseconds(delayTime-delayAdj);
-      //If the level  is 0, which it should be from previous steps, then invert and send high.
-      if (!last_lvl)
-      {
-        digitalWrite(rxtx_pin, HIGH);
-        //digitalWrite(rxrxtx_pin, LOW);
-        last_lvl = !last_lvl;
-      }
-      //Hold high level for second half-bit period.
-      delayMicroseconds(delayTime-delayAdj);
     }
-    else
-    { //The bit to transmit is a 0.
-      //Check if the level has to be flipped for the first half of the bit period. Must be high for 0.
-      if (!last_lvl)
-      {
-        digitalWrite(rxtx_pin, HIGH);
-        //digitalWrite(rxrxtx_pin, LOW);
-        last_lvl = !last_lvl;
-      }
-      //Still delay even if the level doesn't change and hold for a half-bit period.
-      delayMicroseconds(delayTime-delayAdj);
-      //If the level  is 0, which it should be from previous steps, then invert and send high.
-      if (last_lvl)
-      {
-        digitalWrite(rxtx_pin, LOW);
-        //digitalWrite(rxrxtx_pin, HIGH);
-        last_lvl = !last_lvl;
-      }
-      //Hold low level for second half-bit period.
-      delayMicroseconds(delayTime-delayAdj);
-    }
-    mask = (mask >> 1); //Shift the mask to the right 1 to extract the next bit.
   }
   //pinMode(rxrxtx_pin, INPUT);
   //digitalWrite(rxrxtx_pin, HIGH);
@@ -287,6 +283,12 @@ void setup()
   sei(); //Allow interrupts
 }
 
+long generateRandomBackOff(){
+    //Nmax = 200
+    //return = (N/nmax)*1s
+    return random(200)*5.00; //miliseconds
+}
+
 void loop()
 {
   //It should just sit here after initialization.
@@ -318,46 +320,67 @@ void loop()
   {
     Serial.print("\n\r"); //new line
     //Serial.print("\r"); //return
-	txPacket->length = numberOfChars;
-    while(STATE != 0){millis(generateRandomBackOff())}; //Wait until state becomes IDLE after random amount of time
+	  txPacket.leng = numberOfChars;
+    while(STATE != 0){delay(generateRandomBackOff());}; //Wait until state becomes IDLE after random amount of time
     charCnt = 0;
     recCnt = 0;
     charRcvd = 0;
-	//Calculate CRC
-	sendChar(txPacket->synch);
-	sendChar(txPacket->version);
-	sendChar(txPacket->source);
-	sendChar(txPacket->destination); //Eventually make this variable
-	sendChar(txPacket->length);
-	sendChar(txPacket->CRC_flag);
-	for(int i = 0; i < txPacket->length; i++){
-		sendChar(txPacket->message[i]);
-		txPacket->message[i] = -1; //May be unnecessary
-	}
-	if(txPacket->CRC_flag = CRC_ON){
-		sendChar(txPacket->FCS); //Calculate FCS first
-	} else {
-		sendChar(0);
-	}
-    /*int i = 0;
-    while((i < numberOfChars)&&(STATE !=2 ))
-    {
-        if (buf[i] != -1)
-        {
-          //Sends the char and then sets the buffer value to noise
-          sendChar(buf[i]);
-        }
-      i++;
+  	//Calculate CRC
+    bool successful = false;
+    sendChar(txPacket.synch);
+    sendChar(txPacket.vers);
+    sendChar(txPacket.source);
+    sendChar(txPacket.destination); //Eventually make this variable
+    sendChar(txPacket.leng);
+    sendChar(txPacket.CRC_flag);
+    if(!reTrans){
+      for(int i = 0; i < txPacket.leng; i++){
+        sendChar(txPacket.message[i]);
+        txPacket.message[i] = -1; //May be unnecessary
+      }
     }
-    numberOfChars = 0;
-  }*/
+    if(txPacket.CRC_flag = CRC_ON){
+      sendChar(txPacket.FCS); //Calculate FCS first
+    } else {
+      sendChar(0);
+    }
+    if(!reTrans){
+      numberOfChars = 0;
+      successful = true;
+    }
+    while(!successful){
+      while(STATE != 0){delay(generateRandomBackOff());};
+      reTrans = false;
+      sendChar(txPacket.synch);
+      sendChar(txPacket.vers);
+      sendChar(txPacket.source);
+      sendChar(txPacket.destination); //Eventually make this variable
+      sendChar(txPacket.leng);
+      sendChar(txPacket.CRC_flag);
+      if(!reTrans){
+        for(int i = 0; i < txPacket.leng; i++){
+          sendChar(txPacket.message[i]);
+          txPacket.message[i] = -1; //May be unnecessary
+        }
+      }
+      if(txPacket.CRC_flag = CRC_ON){
+        sendChar(txPacket.FCS); //Calculate FCS first
+      } else {
+        sendChar(0);
+      }
+      if(!reTrans){
+        numberOfChars = 0;
+        successful = true;
+      }
+    }
+  }
   else if (incomingByte > 0)
   {
     //Print char to Serial
-    //Serial.print((char)incomingByte);
+    Serial.print((char)incomingByte);
     //store the char
     //buf[numberOfChars] = incomingByte;
-	txPacket->message[numberOfChars] = incomingByte;
+	  txPacket.message[numberOfChars] = incomingByte;
     numberOfChars++;
   }
   digitalWrite(rxtx_pin,HIGH); 
@@ -382,12 +405,6 @@ void loop()
   //}
 }
 
-long generateRandomBackOff(){
-    //Nmax = 200
-    //return = (N/nmax)*1s
-    return random(200)*5.00; //miliseconds
-}
-
 ISR(TIMER1_COMPA_vect)
 {
   /**
@@ -403,6 +420,7 @@ ISR(TIMER1_COMPA_vect)
   else if (lvl == LOW)
   {
     STATE = 2;
+    reTrans = true;
   }
 }
 
@@ -415,23 +433,32 @@ ISR(TIMER2_COMPA_vect){
     if(t2_en && (STATE == 0)){
       if(charCnt != 0){
         Serial.print("R: ");
+        byte l = recBuf[4];
 		//Extract source
-		rxPacket->source = recBuf[3];
+		rxPacket.source = recBuf[2];
+    //Serial.print("recBuf[2] = ");
+    //Serial.println(recBuf[2]);
 		//Extract destination
-		rxPacket->destination = recBuf[4];
+		rxPacket.destination = recBuf[3];
+    //Serial.print("recBuf[3] = ");
+    //Serial.println(recBuf[3]);
 		//Extract length
-		rxPacket->length = recBuf[5];
+		rxPacket.leng = l;
+    //Serial.print("recBuf[4] = ");
+    //Serial.println(recBuf[4]);
 		//Extract CRC flag
-		rxPacket->CRC_flag = recBuf[6];
+		rxPacket.CRC_flag = recBuf[5];
+    //Serial.print("recBuf[5] = ");
+    //Serial.println(recBuf[5]);
 		//Extract message if there is one
-		if(rxPacket->length > 0){
-			for(int i = 0; i < rxPacket->length; i++){
-				rxPacket->message[i] = recBuf[7+i];
-				Serial.print(recBuf[7+i]);
+		if(rxPacket.leng > 0){
+			for(int i = 0; i < rxPacket.leng; i++){
+				rxPacket.message[i] = recBuf[6+i];
+				Serial.print(recBuf[6+i]);
 			}
 		}
 		//Extract the FCS for CRC checking
-		rxPacket->FCS = recBuf[7+rxPacket->length]; //The FCS is immediately after the message, if there is one.
+		rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
 		/*int i = 0;
         while(i < charCnt)
         {
