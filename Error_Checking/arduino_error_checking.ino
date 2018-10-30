@@ -31,8 +31,16 @@ const byte y_pin = 7;
 //Digital pin 8 is for the red LED
 const byte r_pin = 8;
 
-static char buf[150];
-volatile static char recBuf[150];
+const byte SYNCHRONIZATION = 0x55;
+const byte VERSION_NUMBER = 0x01;
+const byte SOURCE_ADDR = 0x01;
+const byte DEST_ADDR = 0x03; //Testing only
+const byte CRC_OFF = 0x00;
+const byte CRC_ON = 0x01;
+const byte MAX_MESSAGE_LENGTH = 255;
+
+static char buf[300];
+volatile static char recBuf[300];
 static int numberOfChars;
 static char incomingByte;
 volatile static int charCnt;
@@ -40,6 +48,26 @@ volatile static int recCnt;
 volatile static char charRcvd;
 static bool rstEdge;
 static bool rec_lvl;
+static struct rxPacket {
+	byte synch = SYNCHRONIZATION;
+	byte version = VERSION_NUMBER;
+	byte source = SOURCE_ADDR;
+	byte destination = DEST_ADDR;
+	byte length;
+	byte CRC_flag = CRC_ON;
+	char message[MAX_MESSAGE_LENGTH];
+	byte FCS;
+}
+static struct txPacket {
+	byte synch = SYNCHRONIZATION;
+	byte version = VERSION_NUMBER;
+	byte source = SOURCE_ADDR;
+	byte destination = DEST_ADDR;
+	byte length;
+	byte CRC_flag = CRC_ON;
+	char message[MAX_MESSAGE_LENGTH];
+	byte FCS;
+}
 long randomBackoff;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
@@ -291,37 +319,46 @@ void loop()
   {
     Serial.print("\n\r"); //new line
     //Serial.print("\r"); //return
-    while(STATE != 0); //Wait until state becomes IDLE
+	txPacket->length = numberOfChars;
+    while(STATE != 0){millis(generateRandomBackOff())}; //Wait until state becomes IDLE after random amount of time
     charCnt = 0;
     recCnt = 0;
     charRcvd = 0;
-    //while(STATE != 2){
-    int i = 0;
+	//Calculate CRC
+	sendChar(txPacket->synch);
+	sendChar(txPacket->version);
+	sendChar(txPacket->source);
+	sendChar(txPacket->destination); //Eventually make this variable
+	sendChar(txPacket->length);
+	sendChar(txPacket->CRC_flag);
+	for(int i = 0; i < txPacket->length; i++){
+		sendChar(txPacket->message[i]);
+		txPacket->message[i] = -1; //May be unnecessary
+	}
+	if(txPacket->CRC_flag = CRC_ON){
+		sendChar(txPacket->FCS); //Calculate FCS first
+	} else {
+		sendChar(0);
+	}
+    /*int i = 0;
     while((i < numberOfChars)&&(STATE !=2 ))
     {
-      //last_lvl = digitalRead(rxtx_pin);
-      //Checks to see if indle state
-      //if (STATE != 2)//it got stuck in this loop as while loop
-      //{
         if (buf[i] != -1)
         {
           //Sends the char and then sets the buffer value to noise
           sendChar(buf[i]);
-          //Serial.print(buf[i]);
-          //buf[i] = -1;
         }
-      //}
       i++;
     }
-    //}
     numberOfChars = 0;
-  }
+  }*/
   else if (incomingByte > 0)
   {
     //Print char to Serial
-    Serial.print((char)incomingByte);
+    //Serial.print((char)incomingByte);
     //store the char
-    buf[numberOfChars] = incomingByte;
+    //buf[numberOfChars] = incomingByte;
+	txPacket->message[numberOfChars] = incomingByte;
     numberOfChars++;
   }
   digitalWrite(rxtx_pin,HIGH); 
@@ -400,28 +437,43 @@ ISR(TIMER2_COMPA_vect){
     if(t2_en && (STATE == 0)){
       if(charCnt != 0){
         Serial.print("R: ");
-        int i = 0;
+		//Extract source
+		rxPacket->source = recBuf[3];
+		//Extract destination
+		rxPacket->destination = recBuf[4];
+		//Extract length
+		rxPacket->length = recBuf[5];
+		//Extract CRC flag
+		rxPacket->CRC_flag = recBuf[6];
+		//Extract message if there is one
+		if(rxPacket->length > 0){
+			for(int i = 0; i < rxPacket->length; i++){
+				rxPacket->message[i] = recBuf[7+i];
+				Serial.print(recBuf[7+i]);
+			}
+		}
+		//Extract the FCS for CRC checking
+		rxPacket->FCS = recBuf[7+rxPacket->length]; //The FCS is immediately after the message, if there is one.
+		/*int i = 0;
         while(i < charCnt)
         {
             if (recBuf[i] > 0)
             {
-              //Sends the char and then sets the buffer value to noise
-              Serial.print(recBuf[i]);
-              recBuf[i] = -1;
+
+			  
+			  //Sends the char and then sets the buffer value to noise
+              //Serial.print(recBuf[i]);
+              //recBuf[i] = -1;
             }
             i++;
-        }
+        }*/
         Serial.print("\n\r"); //new line
-        //Serial.println(rstEdge);
-        //Serial.print("\r"); //return
-        //Serial.println(charCnt);
         recCnt = 0;
         charCnt =0;
         charRcvd = 0;
         t2_en = false;
-        //TCCR2B |= 0; //stop the timer
       } else {
-        Serial.println("-I-");
+        //Serial.println("-I-");
         charCnt = 0;
         recCnt = 0;
         charRcvd = 0;
