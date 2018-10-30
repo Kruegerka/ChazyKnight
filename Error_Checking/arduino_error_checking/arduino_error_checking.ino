@@ -1,5 +1,6 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <stdint.h>
 
 //Function declaration for the input capture ISR
 //void input_capture_isr();
@@ -405,6 +406,36 @@ void loop()
   //}
 }
 
+<<<<<<< HEAD:Error_Checking/arduino_error_checking/arduino_error_checking.ino
+=======
+long generateRandomBackOff()
+{
+    //Nmax = 200
+    //return = (N/nmax)*1s
+    return random(200)*5.00; //miliseconds
+}
+
+//Not Test functionality yet
+uint8_t crc8_ccitt(uint8_t inCrc, int inData)
+{
+  uint8_t i;
+  uint8_t data;
+
+  data = inCrc ^ inData;
+
+  for (i = 0; i< 8; i++){
+    if((data & 0x80) !-0){
+      data <<= 1;
+      data ^= 0x07;
+    }
+    else{
+      data <<=1;
+    }
+  }
+  return data
+}
+
+>>>>>>> 47b10cd5eaa12b91881ef998ef85b29e19a0f97e:Error_Checking/arduino_error_checking.ino
 ISR(TIMER1_COMPA_vect)
 {
   /**
