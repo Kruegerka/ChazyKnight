@@ -1,6 +1,5 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <stdint.h>
 
 //Function declaration for the input capture ISR
 //void input_capture_isr();
@@ -37,6 +36,7 @@ const byte SOURCE_ADDR = 0x01;
 const byte DEST_ADDR = 0x03; //Testing only
 const byte CRC_OFF = 0x00;
 const byte CRC_ON = 0x01;
+const byte NO_CRC_STRING = 0xAA;
 const byte MAX_MESSAGE_LENGTH = 255;
 
 static char buf[300];
@@ -290,6 +290,25 @@ long generateRandomBackOff(){
     return random(200)*5.00; //miliseconds
 }
 
+uint8_t crc8_ccitt(uint8_t inCrc, int inData)
+{
+  uint8_t i;
+  uint8_t data;
+
+  data = inCrc ^ inData;
+
+  for (i = 0; i< 8; i++){
+    if((data & 0x80) !-0){
+      data <<= 1;
+      data ^= 0x07;
+    }
+    else{
+      data <<=1;
+    }
+  }
+  return data
+}
+
 void loop()
 {
   //It should just sit here after initialization.
@@ -328,22 +347,22 @@ void loop()
     charRcvd = 0;
   	//Calculate CRC
     bool successful = false;
+    reTrans = true;
     sendChar(txPacket.synch);
     sendChar(txPacket.vers);
     sendChar(txPacket.source);
     sendChar(txPacket.destination); //Eventually make this variable
     sendChar(txPacket.leng);
     sendChar(txPacket.CRC_flag);
-    if(!reTrans){
-      for(int i = 0; i < txPacket.leng; i++){
-        sendChar(txPacket.message[i]);
-        txPacket.message[i] = -1; //May be unnecessary
-      }
+    int i = 0;
+    while((i < txPacket.leng) && (!reTrans)){
+      sendChar(txPacket.message[i]);
+      i++;
     }
     if(txPacket.CRC_flag = CRC_ON){
       sendChar(txPacket.FCS); //Calculate FCS first
     } else {
-      sendChar(0);
+      sendChar(NO_CRC_STRING);
     }
     if(!reTrans){
       numberOfChars = 0;
@@ -358,16 +377,20 @@ void loop()
       sendChar(txPacket.destination); //Eventually make this variable
       sendChar(txPacket.leng);
       sendChar(txPacket.CRC_flag);
-      if(!reTrans){
-        for(int i = 0; i < txPacket.leng; i++){
-          sendChar(txPacket.message[i]);
-          txPacket.message[i] = -1; //May be unnecessary
-        }
+      int i = 0;
+      while((i < txPacket.leng) && (!reTrans)){
+        sendChar(txPacket.message[i]);
+        i++;
       }
+        /*for(int i = 0; i < txPacket.leng; i++){
+          if(!reTrans){
+            sendChar(txPacket.message[i]);
+          }
+        }*/
       if(txPacket.CRC_flag = CRC_ON){
         sendChar(txPacket.FCS); //Calculate FCS first
       } else {
-        sendChar(0);
+        sendChar(NO_CRC_STRING);
       }
       if(!reTrans){
         numberOfChars = 0;
@@ -375,6 +398,7 @@ void loop()
       }
     }
   }
+  
   else if (incomingByte > 0)
   {
     //Print char to Serial
@@ -406,36 +430,6 @@ void loop()
   //}
 }
 
-<<<<<<< HEAD:Error_Checking/arduino_error_checking/arduino_error_checking.ino
-=======
-long generateRandomBackOff()
-{
-    //Nmax = 200
-    //return = (N/nmax)*1s
-    return random(200)*5.00; //miliseconds
-}
-
-//Not Test functionality yet
-uint8_t crc8_ccitt(uint8_t inCrc, int inData)
-{
-  uint8_t i;
-  uint8_t data;
-
-  data = inCrc ^ inData;
-
-  for (i = 0; i< 8; i++){
-    if((data & 0x80) !-0){
-      data <<= 1;
-      data ^= 0x07;
-    }
-    else{
-      data <<=1;
-    }
-  }
-  return data
-}
-
->>>>>>> 47b10cd5eaa12b91881ef998ef85b29e19a0f97e:Error_Checking/arduino_error_checking.ino
 ISR(TIMER1_COMPA_vect)
 {
   /**
@@ -465,32 +459,32 @@ ISR(TIMER2_COMPA_vect){
       if(charCnt != 0){
         Serial.print("R: ");
         byte l = recBuf[4];
-		//Extract source
-		rxPacket.source = recBuf[2];
-    //Serial.print("recBuf[2] = ");
-    //Serial.println(recBuf[2]);
-		//Extract destination
-		rxPacket.destination = recBuf[3];
-    //Serial.print("recBuf[3] = ");
-    //Serial.println(recBuf[3]);
-		//Extract length
-		rxPacket.leng = l;
-    //Serial.print("recBuf[4] = ");
-    //Serial.println(recBuf[4]);
-		//Extract CRC flag
-		rxPacket.CRC_flag = recBuf[5];
-    //Serial.print("recBuf[5] = ");
-    //Serial.println(recBuf[5]);
-		//Extract message if there is one
-		if(rxPacket.leng > 0){
-			for(int i = 0; i < rxPacket.leng; i++){
-				rxPacket.message[i] = recBuf[6+i];
-				Serial.print(recBuf[6+i]);
-			}
-		}
-		//Extract the FCS for CRC checking
-		rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
-		/*int i = 0;
+    		//Extract source
+    		rxPacket.source = recBuf[2];
+        //Serial.print("recBuf[2] = ");
+        //Serial.println(recBuf[2]);
+    		//Extract destination
+    		rxPacket.destination = recBuf[3];
+        //Serial.print("recBuf[3] = ");
+        //Serial.println(recBuf[3]);
+    		//Extract length
+    		rxPacket.leng = l;
+        //Serial.print("recBuf[4] = ");
+        //Serial.println(recBuf[4]);
+    		//Extract CRC flag
+    		rxPacket.CRC_flag = recBuf[5];
+        //Serial.print("recBuf[5] = ");
+        //Serial.println(recBuf[5]);
+    		//Extract message if there is one
+    		if(rxPacket.leng > 0){
+    			for(int i = 0; i < rxPacket.leng; i++){
+    				rxPacket.message[i] = recBuf[6+i];
+    				Serial.print(recBuf[6+i]);
+    			}
+    		}
+    		//Extract the FCS for CRC checking
+    		rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
+    		/*int i = 0;
         while(i < charCnt)
         {
             if (recBuf[i] > 0)
