@@ -67,6 +67,7 @@ static struct txPacket {
 	char message[MAX_MESSAGE_LENGTH];
 	byte FCS;
 }
+long randomBackoff;
 //Use Timer 1 for the better resolution of a 16 bit timer for 65536 values.
 //Timer syntax is x stands for timer number and y stands for register output number.
 
@@ -281,6 +282,8 @@ void setup()
   rec_lvl = 1;
   rstEdge = false;
 
+  randomSeed(analogRead(14));
+
   sei(); //Allow interrupts
 }
 
@@ -316,7 +319,7 @@ void loop()
     Serial.print("\n\r"); //new line
     //Serial.print("\r"); //return
 	txPacket->length = numberOfChars;
-    while(STATE != 0); //Wait until state becomes IDLE; change to random backoff with new check
+    while(STATE != 0){millis(generateRandomBackOff())}; //Wait until state becomes IDLE after random amount of time
     charCnt = 0;
     recCnt = 0;
     charRcvd = 0;
@@ -377,6 +380,12 @@ void loop()
     }
     recCnt = 0;*/
   //}
+}
+
+long generateRandomBackOff(){
+    //Nmax = 200
+    //return = (N/nmax)*1s
+    return random(200)*5.00; //miliseconds
 }
 
 ISR(TIMER1_COMPA_vect)
