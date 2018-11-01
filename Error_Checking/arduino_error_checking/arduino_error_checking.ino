@@ -38,6 +38,7 @@ const byte CRC_OFF = 0x00;
 const byte CRC_ON = 0x01;
 const byte NO_CRC_STRING = 0xAA;
 const byte MAX_MESSAGE_LENGTH = 255;
+const short CRC_POLYNOMIAL = 0x0107; //0000 000|1 0000 0111| Where 100000111 is the CRC polynomial
 
 static char buf[300];
 volatile static char recBuf[300];
@@ -290,7 +291,8 @@ long generateRandomBackOff(){
     return random(200)*5.00; //miliseconds
 }
 
-uint8_t crc8_ccitt(uint8_t inCrc, int inData)
+//The following is what Kyle found
+/*uint8_t crc8_ccitt(uint8_t inCrc, int inData)
 {
   uint8_t i;
   uint8_t data;
@@ -298,15 +300,41 @@ uint8_t crc8_ccitt(uint8_t inCrc, int inData)
   data = inCrc ^ inData;
 
   for (i = 0; i< 8; i++){
-    if((data & 0x80) !-0){
+    if((data & 0x80) != 0){
       data <<= 1;
       data ^= 0x07;
     }
     else{
-      data <<=1;
+      data <<= 1;
     }
   }
-  return data
+  return data;
+}*/
+
+//The following is Chas' modification; to do the long string, repeat where inData becomes CRC result of the one before (cascading/recursive)
+char crc8_ccitt(short inCrc, byte inData)
+{
+  uint8_t i;
+  short data = inData;
+  //Serial.println(inCrc,BIN);
+  //Serial.println(data,BIN);
+
+  for (i = 0; i < 8; i++){
+    if((data & 0x100) == 0){
+      data <<= 1;
+      //Serial.println(data,BIN);
+    }
+    else{
+      data ^= inCrc;
+      i -= 1; //Only decrement for shifting
+    }
+    //Serial.println(data,BIN);
+  }
+  if((data & 0x100) != 0){
+    data ^= inCrc;
+  }
+  //Serial.println(data,BIN);
+  return (char)(data & 0xFF); //Ideally returns lower half of CRC.
 }
 
 void loop()
@@ -382,12 +410,19 @@ void loop()
         sendChar(txPacket.message[i]);
         i++;
       }
-        /*for(int i = 0; i < txPacket.leng; i++){
-          if(!reTrans){
-            sendChar(txPacket.message[i]);
-          }
-        }*/
       if(txPacket.CRC_flag = CRC_ON){
+        byte fcs;
+        byte cascadeByte;
+        fcs = crc8_ccitt(CRC_POLYNOMIAL,txPacket.message[0]); //Calculate off first byte
+        //Serial.print("fcs:"); Serial.println(fcs,BIN);
+        for(int i = 1; i < numberOfChars; i++){
+          cascadeByte = fcs ^ txPacket.message[i];
+          //Serial.print("txPack:"); Serial.println(txPacket.message[i],BIN);
+          //Serial.print("casc:"); Serial.println(cascadeByte,BIN);
+          fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous
+         // Serial.print("cascfcs"); Serial.println(fcs,BIN); 
+        }
+        txPacket.FCS = fcs;
         sendChar(txPacket.FCS); //Calculate FCS first
       } else {
         sendChar(NO_CRC_STRING);
@@ -409,25 +444,6 @@ void loop()
     numberOfChars++;
   }
   digitalWrite(rxtx_pin,HIGH); 
-
-  //Receive code
-  /*if(t2_en && (STATE == 0)){
-    Serial.println("I am here");
-    /*
-    t2_en = false;
-    int i = 0;
-    while(i < recCnt)
-    {
-        if (recBuf[i] != -1)
-        {
-          //Sends the char and then sets the buffer value to noise
-          Serial.print(recBuf[i]);
-          recBuf[i] = -1;
-        }
-        i++;
-    }
-    recCnt = 0;*/
-  //}
 }
 
 ISR(TIMER1_COMPA_vect)
@@ -461,20 +477,12 @@ ISR(TIMER2_COMPA_vect){
         byte l = recBuf[4];
     		//Extract source
     		rxPacket.source = recBuf[2];
-        //Serial.print("recBuf[2] = ");
-        //Serial.println(recBuf[2]);
     		//Extract destination
     		rxPacket.destination = recBuf[3];
-        //Serial.print("recBuf[3] = ");
-        //Serial.println(recBuf[3]);
     		//Extract length
     		rxPacket.leng = l;
-        //Serial.print("recBuf[4] = ");
-        //Serial.println(recBuf[4]);
     		//Extract CRC flag
     		rxPacket.CRC_flag = recBuf[5];
-        //Serial.print("recBuf[5] = ");
-        //Serial.println(recBuf[5]);
     		//Extract message if there is one
     		if(rxPacket.leng > 0){
     			for(int i = 0; i < rxPacket.leng; i++){
@@ -483,20 +491,17 @@ ISR(TIMER2_COMPA_vect){
     			}
     		}
     		//Extract the FCS for CRC checking
-    		rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
-    		/*int i = 0;
-        while(i < charCnt)
-        {
-            if (recBuf[i] > 0)
-            {
-
-			  
-			  //Sends the char and then sets the buffer value to noise
-              //Serial.print(recBuf[i]);
-              //recBuf[i] = -1;
-            }
-            i++;
-        }*/
+        byte fcs;
+        byte cascadeByte;
+        fcs = crc8_ccitt(CRC_POLYNOMIAL,rxPacket.message[0]); //Calculate off first byte
+        for(int i = 1; i < txPacket.leng; i++){
+          cascadeByte = fcs ^ rxPacket.message[i];
+          fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous 
+        }
+        rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
+        Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
+        Serial.print("Received Calculated FCS = "); Serial.println((fcs));
+        Serial.print("Received FCS = "); Serial.println((rxPacket.FCS));
         Serial.print("\n\r"); //new line
         recCnt = 0;
         charCnt =0;
