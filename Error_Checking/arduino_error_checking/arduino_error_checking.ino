@@ -57,7 +57,7 @@ struct Packet {
 	byte source = SOURCE_ADDR;
 	byte destination = DEST_ADDR;
 	byte leng;
-	byte CRC_flag = CRC_OFF;
+	byte CRC_flag = CRC_ON;
 	char message[MAX_MESSAGE_LENGTH];
 	byte FCS;
 };
@@ -370,14 +370,57 @@ void loop()
     Serial.print("\n\r"); //new line
     //Serial.print("\r"); //return
 	  txPacket.leng = numberOfChars;
-    while(STATE != 0){delay(generateRandomBackOff());}; //Wait until state becomes IDLE after random amount of time
+    while(STATE == 1){delay(generateRandomBackOff());}; //Wait until state becomes IDLE after random amount of time
     charCnt = 0;
     recCnt = 0;
     charRcvd = 0;
-  	//Calculate CRC
+    //Calculate CRC
     bool successful = false;
     reTrans = true;
-    sendChar(txPacket.synch);
+    unsuccessCnt = 0;
+    while((!successful) && (unsuccessCnt < 20)){
+      if(!successful){
+        delay(generateRandomBackOff());
+        reTrans = false;
+        sendChar(txPacket.synch);
+        sendChar(txPacket.vers);
+        sendChar(txPacket.source);
+        sendChar(txPacket.destination); //Eventually make this variable
+        sendChar(txPacket.leng);
+        sendChar(txPacket.CRC_flag);
+        int i = 0;
+        while((i < txPacket.leng) && (!reTrans)){
+          sendChar(txPacket.message[i]);
+          i++;
+        }
+        if(txPacket.CRC_flag == CRC_ON){
+          byte fcs;
+          byte cascadeByte;
+          fcs = crc8_ccitt(CRC_POLYNOMIAL,txPacket.message[0]); //Calculate off first byte
+          //Serial.print("fcs:"); Serial.println(fcs,BIN);
+          for(int i = 1; i < numberOfChars; i++){
+            cascadeByte = fcs ^ txPacket.message[i];
+            //Serial.print("txPack:"); Serial.println(txPacket.message[i],BIN);
+            //Serial.print("casc:"); Serial.println(cascadeByte,BIN);
+            fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous
+           // Serial.print("cascfcs"); Serial.println(fcs,BIN); 
+          }
+          txPacket.FCS = fcs;
+          sendChar(txPacket.FCS); //Calculate FCS first
+        } else {
+          txPacket.FCS = NO_CRC_STRING;
+          sendChar(txPacket.FCS);
+        }
+        if(!reTrans){
+          numberOfChars = 0;
+          successful = true;
+          unsuccessCnt = 0;
+        }
+      }
+      unsuccessCnt++;
+    }
+
+    /*sendChar(txPacket.synch);
     sendChar(txPacket.vers);
     sendChar(txPacket.source);
     sendChar(txPacket.destination); //Eventually make this variable
@@ -437,7 +480,7 @@ void loop()
         unsuccessCnt = 0;
       }
       unsuccessCnt++;
-    }
+    }*/
   }
   
   else if (incomingByte > 0)
