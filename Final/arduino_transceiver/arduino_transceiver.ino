@@ -368,6 +368,7 @@ void loop()
   if (incomingByte == 13)//if user hits enter
   {
     Serial.print("\n\r"); //new line
+    
     //Serial.print("\r"); //return
 	  txPacket.leng = numberOfChars;
     while(STATE == 1){delay(generateRandomBackOff());}; //Wait until state becomes IDLE after random amount of time
@@ -419,68 +420,6 @@ void loop()
       }
       unsuccessCnt++;
     }
-
-    /*sendChar(txPacket.synch);
-    sendChar(txPacket.vers);
-    sendChar(txPacket.source);
-    sendChar(txPacket.destination); //Eventually make this variable
-    sendChar(txPacket.leng);
-    sendChar(txPacket.CRC_flag);
-    int i = 0;
-    while((i < txPacket.leng) && (!reTrans)){
-      sendChar(txPacket.message[i]);
-      i++;
-    }
-    if(txPacket.CRC_flag == CRC_ON){
-      sendChar(txPacket.FCS); //Calculate FCS first
-    } else {
-      txPacket.FCS = NO_CRC_STRING;
-      sendChar(txPacket.FCS);
-    }
-    if(!reTrans){
-      numberOfChars = 0;
-      successful = true;
-    }
-    unsuccessCnt = 0;
-    while((!successful) && (unsuccessCnt < 10)){
-      while(STATE != 0){delay(generateRandomBackOff());};
-      reTrans = false;
-      sendChar(txPacket.synch);
-      sendChar(txPacket.vers);
-      sendChar(txPacket.source);
-      sendChar(txPacket.destination); //Eventually make this variable
-      sendChar(txPacket.leng);
-      sendChar(txPacket.CRC_flag);
-      int i = 0;
-      while((i < txPacket.leng) && (!reTrans)){
-        sendChar(txPacket.message[i]);
-        i++;
-      }
-      if(txPacket.CRC_flag == CRC_ON){
-        byte fcs;
-        byte cascadeByte;
-        fcs = crc8_ccitt(CRC_POLYNOMIAL,txPacket.message[0]); //Calculate off first byte
-        //Serial.print("fcs:"); Serial.println(fcs,BIN);
-        for(int i = 1; i < numberOfChars; i++){
-          cascadeByte = fcs ^ txPacket.message[i];
-          //Serial.print("txPack:"); Serial.println(txPacket.message[i],BIN);
-          //Serial.print("casc:"); Serial.println(cascadeByte,BIN);
-          fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous
-         // Serial.print("cascfcs"); Serial.println(fcs,BIN); 
-        }
-        txPacket.FCS = fcs;
-        sendChar(txPacket.FCS); //Calculate FCS first
-      } else {
-        txPacket.FCS = NO_CRC_STRING;
-        sendChar(txPacket.FCS);
-      }
-      if(!reTrans){
-        numberOfChars = 0;
-        successful = true;
-        unsuccessCnt = 0;
-      }
-      unsuccessCnt++;
-    }*/
   }
   
   else if (incomingByte > 0)
@@ -522,55 +461,123 @@ ISR(TIMER2_COMPA_vect){
     //end transmission
     if(t2_en && (STATE == 0)){
       if(charCnt != 0){
-        Serial.print("R: ");
+        //Serial.print("R: ");
         byte l = recBuf[4];
-    		//Extract source
-    		rxPacket.source = recBuf[2];
+
     		//Extract destination
     		rxPacket.destination = recBuf[3];
-    		//Extract length
-    		rxPacket.leng = l;
-    		//Extract CRC flag
-    		rxPacket.CRC_flag = recBuf[5];
-    		//Extract message if there is one
-    		if(rxPacket.leng > 0){
-    			for(int i = 0; i < rxPacket.leng; i++){
-    				rxPacket.message[i] = recBuf[6+i];
-    				Serial.print(recBuf[6+i]);
-    			}
-    		}
-               Serial.print("\n\r"); //new line
-    		//Extract the FCS for CRC checking
-        if(rxPacket.CRC_flag == CRC_ON){
-          byte fcs;
+        if((rxPacket.destination == 1) || (rxPacket.destination == 2)){
+          //Extract source
+          rxPacket.source = recBuf[2];
+
+
+          
+      		//Extract length
+      		rxPacket.leng = l;
+      		//Extract CRC flag
+      		rxPacket.CRC_flag = recBuf[5];
+          //Extract the FCS for CRC checking
+          byte fcs = 0;
           byte cascadeByte;
-          fcs = crc8_ccitt(CRC_POLYNOMIAL,rxPacket.message[0]); //Calculate off first byte
-          for(int i = 1; i < txPacket.leng; i++){
-            cascadeByte = fcs ^ rxPacket.message[i];
-            fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous 
+          if(rxPacket.CRC_flag == CRC_ON){
+            fcs = crc8_ccitt(CRC_POLYNOMIAL,rxPacket.message[0]); //Calculate off first byte
+            for(int i = 1; i < txPacket.leng; i++){
+              cascadeByte = fcs ^ rxPacket.message[i];
+              fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous 
+            }
+            rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
+            cascadeByte = fcs ^= rxPacket.FCS;
+            fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte);
+            //Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
+            //Serial.print("Received Calculated FCS = "); Serial.println((fcs));
+          } else {
+            rxPacket.FCS = recBuf[6+1];
+            //Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
           }
-          rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
-          cascadeByte = fcs ^= rxPacket.FCS;
-          fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte);
-          Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
-          Serial.print("Received Calculated FCS = "); Serial.println((fcs));
-        } else {
-          rxPacket.FCS = recBuf[6+1];
-          Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
+          if(fcs == 0){
+            switch(rxPacket.source){
+              case 3:
+                Serial.print("From Adam: ");
+                break;
+              case 4:
+                Serial.print("From Connor: ");
+                break;
+              case 5:
+                Serial.print("From Michael: ");
+                break;
+              case 6:
+                Serial.print("From Eli: ");
+                break;
+              case 7:
+                Serial.print("From Guenther: ");
+                break;
+              case 8:
+                Serial.print("From Nathan: ");
+                break;
+              case 9:
+                Serial.print("From Jesse: ");
+                break;
+              case 10:
+                Serial.print("From Robert: ");
+                break;
+              case 11:
+                Serial.print("From Jeff: ");
+                break;
+              case 12:
+                Serial.print("From Ashwin: ");
+                break;
+              case 13:
+                Serial.print("From Saif: ");
+                break;
+              case 14:
+                Serial.print("From Mitchell: ");
+                break;
+              case 15:
+                Serial.print("From Max: ");
+                break;
+              case 16:
+                Serial.print("From Chris: ");
+                break;
+              case 17:
+                Serial.print("From John: ");
+                break;
+              case 254:
+                Serial.print("From Dr. Rothe: ");
+                break;
+              case 255:
+                Serial.print("From Dr. Meier: ");
+                break;
+              case 0:
+                Serial.print("Broadcast: ");
+                break;
+              default:
+                Serial.print("Uknown Address: ");
+                break;
+            }
+        		//Extract message if there is one
+        		if(rxPacket.leng > 0){
+        			for(int i = 0; i < rxPacket.leng; i++){
+        				rxPacket.message[i] = recBuf[6+i];
+        				Serial.print(recBuf[6+i]);
+        			}
+        		}
+          } else {
+            Serial.print("Message received in error and was dropped."); Serial.print("FCS Result = "); Serial.println(fcs);
+          }
+          Serial.print("\n\r"); //new line
+          /*Serial.print("SYNC = "); Serial.println((rxPacket.synch));
+          Serial.print("VERSION = "); Serial.println((rxPacket.vers));
+          Serial.print("SOURCE = "); Serial.println((rxPacket.source));
+          Serial.print("DESTINATION = "); Serial.println((rxPacket.destination));
+          Serial.print("LENGTH = "); Serial.println((rxPacket.leng));
+          Serial.print("CRC FLAG = "); Serial.println((rxPacket.CRC_flag));
+          Serial.print("Received FCS = "); Serial.println((rxPacket.FCS));*/
+  
+          recCnt = 0;
+          charCnt =0;
+          charRcvd = 0;
+          t2_en = false;
         }
-
-        Serial.print("SYNC = "); Serial.println((rxPacket.synch));
-        Serial.print("VERSION = "); Serial.println((rxPacket.vers));
-        Serial.print("SOURCE = "); Serial.println((rxPacket.source));
-        Serial.print("DESTINATION = "); Serial.println((rxPacket.destination));
-        Serial.print("LENGTH = "); Serial.println((rxPacket.leng));
-        Serial.print("CRC FLAG = "); Serial.println((rxPacket.CRC_flag));
-        Serial.print("Received FCS = "); Serial.println((rxPacket.FCS));
-
-        recCnt = 0;
-        charCnt =0;
-        charRcvd = 0;
-        t2_en = false;
       } else {
         //Serial.println("-I-");
         charCnt = 0;
