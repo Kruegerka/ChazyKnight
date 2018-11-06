@@ -1,5 +1,5 @@
 {
     "board": "arduino:avr:uno",
-    "sketch": "Transmitter\\arduino_transmitter.ino",
-    "port": "COM8"
+    "sketch": "Final/arduino_transceiver/arduino_transceiver.ino",
+    "port": "COM5"
 }

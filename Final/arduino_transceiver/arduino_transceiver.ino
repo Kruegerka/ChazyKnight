@@ -368,7 +368,21 @@ void loop()
   if (incomingByte == 13)//if user hits enter
   {
     Serial.print("\n\r"); //new line
-    
+    Serial.print("Enter destination:");
+    char currentChar = 0;
+    char dest[2];
+    int i = 0;
+    do{
+      currentChar = Serial.read();
+      if(currentChar > 0){
+        dest[i] = currentChar;
+        Serial.print(currentChar);
+        i++;
+      }
+    }while(currentChar != 13);
+    Serial.print("\n\r");
+    txPacket.destination = (dest[0]-48)*10+(dest[1]-48);
+    //Serial.print(txPacket.destination+"\n\r");
     //Serial.print("\r"); //return
 	  txPacket.leng = numberOfChars;
     while(STATE == 1){delay(generateRandomBackOff());}; //Wait until state becomes IDLE after random amount of time
@@ -466,10 +480,12 @@ ISR(TIMER2_COMPA_vect){
 
     		//Extract destination
     		rxPacket.destination = recBuf[3];
-        if((rxPacket.destination == 1) || (rxPacket.destination == 2)){
+        if((rxPacket.destination == 1) || (rxPacket.destination == 2) || (rxPacket.destination == 0)){
           //Extract source
           rxPacket.source = recBuf[2];
-
+          if(rxPacket.destination == 0){
+            Serial.print("Broadcast: ");
+          }
 
           
       		//Extract length
@@ -495,6 +511,7 @@ ISR(TIMER2_COMPA_vect){
             //Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
           }
           if(fcs == 0){
+            Serial.print("\r\n");
             switch(rxPacket.source){
               case 3:
                 Serial.print("From Adam: ");
@@ -547,8 +564,11 @@ ISR(TIMER2_COMPA_vect){
               case 255:
                 Serial.print("From Dr. Meier: ");
                 break;
-              case 0:
-                Serial.print("Broadcast: ");
+              case 1:
+                Serial.print("From Self: ");
+                break;
+              case 2:
+                Serial.print("From Self: ");
                 break;
               default:
                 Serial.print("Uknown Address: ");
