@@ -317,8 +317,8 @@ char crc8_ccitt(short inCrc, byte inData)
 {
   uint8_t i;
   short data = inData;
-  //Serial.println(inCrc,BIN);
-  //Serial.println(data,BIN);
+  Serial.print("inCRC = "); Serial.println(inCrc,BIN);
+  Serial.print("data = "); Serial.println(data,BIN);
 
   for (i = 0; i < 8; i++){
     if((data & 0x100) == 0){
@@ -334,7 +334,7 @@ char crc8_ccitt(short inCrc, byte inData)
   if((data & 0x100) != 0){
     data ^= inCrc;
   }
-  //Serial.println(data,BIN);
+  Serial.print("CRC result = "); Serial.println(data,BIN);
   return (char)(data & 0xFF); //Ideally returns lower half of CRC.
 }
 
@@ -480,7 +480,7 @@ ISR(TIMER2_COMPA_vect){
 
     		//Extract destination
     		rxPacket.destination = recBuf[3];
-        if((rxPacket.destination == 1) || (rxPacket.destination == 2) || (rxPacket.destination == 0)){
+        if((rxPacket.destination == 1) || (rxPacket.destination == 0)){
           //Extract source
           rxPacket.source = recBuf[2];
           if(rxPacket.destination == 0){
@@ -493,22 +493,31 @@ ISR(TIMER2_COMPA_vect){
       		//Extract CRC flag
       		rxPacket.CRC_flag = recBuf[5];
           //Extract the FCS for CRC checking
+            //Extract message if there is one
+            if(rxPacket.leng > 0){
+              for(int i = 0; i < rxPacket.leng; i++){
+                rxPacket.message[i] = recBuf[6+i];
+                Serial.print(recBuf[6+i]);
+              }
+            }
           byte fcs = 0;
           byte cascadeByte;
           if(rxPacket.CRC_flag == CRC_ON){
             fcs = crc8_ccitt(CRC_POLYNOMIAL,rxPacket.message[0]); //Calculate off first byte
+            Serial.print("Message = "); Serial.println(rxPacket.message[0]);
             for(int i = 1; i < txPacket.leng; i++){
               cascadeByte = fcs ^ rxPacket.message[i];
               fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte); //Calulate with previous 
             }
             rxPacket.FCS = recBuf[6+l]; //The FCS is immediately after the message, if there is one.
-            cascadeByte = fcs ^= rxPacket.FCS;
+            Serial.print("Received FCS = "); Serial.println(rxPacket.FCS,BIN);
+            cascadeByte = fcs ^ rxPacket.FCS;
             fcs = crc8_ccitt(CRC_POLYNOMIAL, cascadeByte);
-            //Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
-            //Serial.print("Received Calculated FCS = "); Serial.println((fcs));
+            Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS,BIN));
+            Serial.print("Received Calculated FCS = "); Serial.println((fcs,BIN));
           } else {
             rxPacket.FCS = recBuf[6+1];
-            //Serial.print("Transmitted FCS = "); Serial.println((txPacket.FCS));
+            //Serial.print("Transmitted FCS = "); Serial.println((rxPacket.FCS));
           }
           if(fcs == 0){
             Serial.print("\r\n");
@@ -574,24 +583,18 @@ ISR(TIMER2_COMPA_vect){
                 Serial.print("Uknown Address: ");
                 break;
             }
-        		//Extract message if there is one
-        		if(rxPacket.leng > 0){
-        			for(int i = 0; i < rxPacket.leng; i++){
-        				rxPacket.message[i] = recBuf[6+i];
-        				Serial.print(recBuf[6+i]);
-        			}
-        		}
+
           } else {
             Serial.print("Message received in error and was dropped."); Serial.print("FCS Result = "); Serial.println(fcs);
           }
           Serial.print("\n\r"); //new line
-          /*Serial.print("SYNC = "); Serial.println((rxPacket.synch));
-          Serial.print("VERSION = "); Serial.println((rxPacket.vers));
-          Serial.print("SOURCE = "); Serial.println((rxPacket.source));
-          Serial.print("DESTINATION = "); Serial.println((rxPacket.destination));
+          //Serial.print("SYNC = "); Serial.println((rxPacket.synch));
+          //Serial.print("VERSION = "); Serial.println((rxPacket.vers));
+          //Serial.print("SOURCE = "); Serial.println((rxPacket.source));
+          //Serial.print("DESTINATION = "); Serial.println((rxPacket.destination));
           Serial.print("LENGTH = "); Serial.println((rxPacket.leng));
           Serial.print("CRC FLAG = "); Serial.println((rxPacket.CRC_flag));
-          Serial.print("Received FCS = "); Serial.println((rxPacket.FCS));*/
+          Serial.print("Received FCS = "); Serial.println((rxPacket.FCS));
   
           recCnt = 0;
           charCnt =0;
